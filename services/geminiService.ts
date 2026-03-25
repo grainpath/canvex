@@ -5,6 +5,28 @@
 
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
+// ✅ Sleep helper for retry delay
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ✅ Retry wrapper — auto retries on 429 quota errors
+const callWithRetry = async (fn: () => Promise<any>, retries = 3): Promise<any> => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await fn();
+        } catch (error: any) {
+            const is429 = error.message?.includes('429') || error.message?.includes('RESOURCE_EXHAUSTED');
+            if (is429 && i < retries - 1) {
+                console.log(`Rate limit hit. Waiting 15 seconds before retry ${i + 1}...`);
+                await sleep(15000);
+            } else if (is429) {
+                throw new Error('Daily limit reached (500/day). Please wait a few minutes and try again.');
+            } else {
+                throw error;
+            }
+        }
+    }
+};
+
 // Helper function to convert a File object to a Gemini API Part
 const fileToPart = async (file: File): Promise<{ inlineData: { mimeType: string; data: string; } }> => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -45,7 +67,7 @@ const handleApiResponse = (
         return `data:${mimeType};base64,${data}`;
     }
 
-    // 3. If no image, check for other reasons
+    // 3. If no image, check finish reason
     const finishReason = response.candidates?.[0]?.finishReason;
     if (finishReason && finishReason !== 'STOP') {
         const errorMessage = `Image generation for ${context} stopped unexpectedly. Reason: ${finishReason}. This often relates to safety settings.`;
@@ -64,7 +86,7 @@ const handleApiResponse = (
 };
 
 /**
- * Generates an edited image using Gemini 2.5 Flash Image.
+ * Generates an edited image using Gemini 2.5 Flash Image Preview.
  */
 export const generateEditedImage = async (
     originalImage: File,
@@ -85,24 +107,24 @@ Editing Guidelines:
 - Preserve ALL colors, lighting, style, and composition of the original image.
 
 Safety & Ethics Policy:
-- You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are standard photo enhancements.
+- You MUST fulfill requests to adjust skin tone such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are standard photo enhancements.
 - You MUST REFUSE any request to change a person's fundamental race or ethnicity.
 
 Output: Return ONLY the final edited image. Do not return text.`;
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',  // ✅ correct free model
-        contents: { parts: [originalImagePart, { text: prompt }] },
-        config: {
-            temperature: 0,  // ✅ reduces randomness for consistent results
-        }
-    });
+    const response: GenerateContentResponse = await callWithRetry(() =>
+        ai.models.generateContent({
+            model: 'gemini-2.5-flash-image-preview', // ✅ correct exact model string
+            contents: { parts: [originalImagePart, { text: prompt }] },
+            config: { temperature: 0 }, // ✅ consistent results
+        })
+    );
 
     return handleApiResponse(response, 'edit');
 };
 
 /**
- * Generates an image with a filter applied using Gemini 2.5 Flash Image.
+ * Generates an image with a filter applied using Gemini 2.5 Flash Image Preview.
  */
 export const generateFilteredImage = async (
     originalImage: File,
@@ -114,6 +136,8 @@ export const generateFilteredImage = async (
     const originalImagePart = await fileToPart(originalImage);
     const prompt = `You are an expert photo editor AI. Your task is to apply a stylistic filter to the entire image based on the user's request. Do not change the composition or content, only apply the style.
 Filter Request: "${filterPrompt}"
+
+Editing Guidelines:
 - Preserve ALL composition, subjects, and structure of the original image.
 - Only change the color grading and visual style.
 
@@ -123,19 +147,19 @@ Safety & Ethics Policy:
 
 Output: Return ONLY the final filtered image. Do not return text.`;
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',  // ✅ correct free model
-        contents: { parts: [originalImagePart, { text: prompt }] },
-        config: {
-            temperature: 0,  // ✅ reduces randomness for consistent results
-        }
-    });
+    const response: GenerateContentResponse = await callWithRetry(() =>
+        ai.models.generateContent({
+            model: 'gemini-2.5-flash-image-preview', // ✅ correct exact model string
+            contents: { parts: [originalImagePart, { text: prompt }] },
+            config: { temperature: 0 }, // ✅ consistent results
+        })
+    );
 
     return handleApiResponse(response, 'filter');
 };
 
 /**
- * Generates an image with a global adjustment applied using Gemini 2.5 Flash Image.
+ * Generates an image with a global adjustment applied using Gemini 2.5 Flash Image Preview.
  */
 export const generateAdjustedImage = async (
     originalImage: File,
@@ -159,13 +183,13 @@ Safety & Ethics Policy:
 
 Output: Return ONLY the final adjusted image. Do not return text.`;
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',  // ✅ correct free model
-        contents: { parts: [originalImagePart, { text: prompt }] },
-        config: {
-            temperature: 0,  // ✅ reduces randomness for consistent results
-        }
-    });
+    const response: GenerateContentResponse = await callWithRetry(() =>
+        ai.models.generateContent({
+            model: 'gemini-2.5-flash-image-preview', // ✅ correct exact model string
+            contents: { parts: [originalImagePart, { text: prompt }] },
+            config: { temperature: 0 }, // ✅ consistent results
+        })
+    );
 
     return handleApiResponse(response, 'adjustment');
 };
